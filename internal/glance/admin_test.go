@@ -1,8 +1,17 @@
 package glance
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-jose/go-jose/v4"
 )
 
 func TestConfigParsesAdminBlock(t *testing.T) {
@@ -50,4 +59,76 @@ pages:
 		!strings.EqualFold(cfg.Admin.CloudflareAccess.AllowedEmails[0], "you@example.com") {
 		t.Fatalf("allowed-emails: got %v", cfg.Admin.CloudflareAccess.AllowedEmails)
 	}
+}
+
+func newTestAdminServer(t *testing.T) (*adminServer, *cfAccessVerifier, jose.Signer, string) {
+	t.Helper()
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	jwksSrv, signer := testJWKSServer(t, key, "k1")
+	teamDomain := strings.TrimPrefix(jwksSrv.URL, "http://")
+	aud := "aud-xyz"
+	verifier, err := newCFAccessVerifier(context.Background(), cfAccessConfig{
+		TeamDomain: teamDomain, Audience: aud,
+		AllowedEmails: []string{"you@example.com"},
+		InsecureHTTP:  true,
+	})
+	if err != nil {
+		t.Fatalf("verifier: %v", err)
+	}
+	a := &adminServer{cfAccess: verifier, devBypass: false}
+	return a, verifier, signer, aud
+}
+
+func TestAdminMountRejectsMissingCFJWT(t *testing.T) {
+	a, _, _, _ := newTestAdminServer(t)
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rw.Code)
+	}
+	if got := rw.Header().Get("X-Admin-Auth-Failed"); got != "cloudflare-access" {
+		t.Fatalf("expected X-Admin-Auth-Failed=cloudflare-access, got %q", got)
+	}
+}
+
+func TestAdminMountAcceptsValidCFJWTButStillRequiresSession(t *testing.T) {
+	a, _, signer, aud := newTestAdminServer(t)
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin", nil)
+	req.Header.Set("Cf-Access-Jwt-Assertion", mintToken(t, signer, aud, "you@example.com", time.Now().Add(time.Hour)))
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rw.Code)
+	}
+	if got := rw.Header().Get("X-Admin-Auth-Failed"); got != "session" {
+		t.Fatalf("expected X-Admin-Auth-Failed=session, got %q", got)
+	}
+}
+
+func TestAdminDevBypassSkipsCFButKeepsSession(t *testing.T) {
+	a, _, _, _ := newTestAdminServer(t)
+	a.devBypass = true
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rw.Code)
+	}
+	if got := rw.Header().Get("X-Admin-Auth-Failed"); got != "session" {
+		t.Fatalf("expected X-Admin-Auth-Failed=session, got %q", got)
+	}
+	_ = os.Setenv // keep import
 }
