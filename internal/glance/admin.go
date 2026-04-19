@@ -2,6 +2,7 @@ package glance
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -83,12 +84,35 @@ func (a *adminServer) getLiveApp() *application {
 // registerRoutes mounts the admin handlers. prefix is the path prefix (e.g. "/admin").
 func (a *adminServer) registerRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix, a.middleware(a.handleIndex))
+	mux.HandleFunc("GET "+prefix+"/api/files", a.middleware(a.handleListFiles))
 }
 
 func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Placeholder — replaced with the editor shell in Task 15.
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte("admin ok"))
+}
+
+type fileListEntry struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"mtime"` // unix seconds
+}
+
+func (a *adminServer) handleListFiles(w http.ResponseWriter, r *http.Request) {
+	out := make([]fileListEntry, 0, len(a.filePaths))
+	for _, p := range a.filePaths {
+		info, err := os.Stat(p)
+		if err != nil {
+			out = append(out, fileListEntry{Path: p})
+			continue
+		}
+		out = append(out, fileListEntry{
+			Path: p, Size: info.Size(), ModTime: info.ModTime().Unix(),
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // adminShouldMount reports whether the admin surface should be mounted and,

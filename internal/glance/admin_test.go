@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -184,5 +185,50 @@ pages:
 				t.Fatalf("reason %q does not contain %q", reason, tc.want)
 			}
 		})
+	}
+}
+
+func TestAdminListFilesReturnsMainAndIncludes(t *testing.T) {
+	tmp := t.TempDir()
+	main := tmp + "/glance.yml"
+	inc := tmp + "/pages/home.yml"
+	if err := os.MkdirAll(tmp+"/pages", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(main, []byte("pages: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inc, []byte("- name: Home\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &adminServer{
+		devBypass: true,
+		filePaths: []string{main, inc},
+		liveApp:   func() *application { return &application{} },
+	}
+
+	req := httptest.NewRequest("GET", "/admin/api/files", nil)
+	rw := httptest.NewRecorder()
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d; body=%s", rw.Code, rw.Body.String())
+	}
+
+	var got []fileListEntry
+	if err := json.Unmarshal(rw.Body.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d files, want 2", len(got))
+	}
+	if got[0].Path != main {
+		t.Fatalf("expected main first, got %q", got[0].Path)
+	}
+	if got[0].Size == 0 {
+		t.Fatalf("expected non-zero size")
 	}
 }
