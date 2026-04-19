@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -55,13 +56,38 @@ func newAdminServer(ctx context.Context, cfg *config, liveApp func() *applicatio
 		log.Printf("WARNING: GLANCE_ADMIN_DEV_BYPASS is set — Cloudflare Access verification is skipped")
 	}
 
-	paths := append([]string{configPath}, includes...)
+	// Normalize to absolute paths so later comparisons (traversal guard,
+	// main-file validation gate) work whether the user passed relative or
+	// absolute --config.
+	paths := make([]string, 0, 1+len(includes))
+	for _, p := range append([]string{configPath}, includes...) {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return nil, fmt.Errorf("resolving config path %q: %w", p, err)
+		}
+		paths = append(paths, abs)
+	}
+
+	historyDir := cfg.Admin.HistoryDir
+	if historyDir == "" {
+		historyDir = filepath.Join(filepath.Dir(configPath), ".glance-history")
+	}
+	history, err := openGitHistory(historyDir, paths)
+	if err != nil {
+		return nil, fmt.Errorf("opening history repo: %w", err)
+	}
+	if _, gerr := history.git("rev-parse", "HEAD"); gerr != nil {
+		if ierr := history.recordInitial(); ierr != nil {
+			return nil, fmt.Errorf("recording initial history commit: %w", ierr)
+		}
+	}
 
 	a := &adminServer{
 		liveApp:   liveApp,
 		cfAccess:  verifier,
 		devBypass: devBypass,
 		filePaths: paths,
+		history:   history,
 		previews:  newPreviewRegistry(3, 5*time.Minute),
 	}
 	go func() {
