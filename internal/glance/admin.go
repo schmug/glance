@@ -3,6 +3,7 @@ package glance
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -87,6 +88,7 @@ func (a *adminServer) registerRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix, a.middleware(a.handleIndex))
 	mux.HandleFunc("GET "+prefix+"/api/files", a.middleware(a.handleListFiles))
 	mux.HandleFunc("GET "+prefix+"/api/files/{path...}", a.middleware(a.handleReadFile))
+	mux.HandleFunc("POST "+prefix+"/api/validate", a.middleware(a.handleValidate))
 }
 
 func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +151,28 @@ func (a *adminServer) handleReadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write(data)
+}
+
+type validateResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+func (a *adminServer) handleValidate(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(validateResponse{Error: "body read: " + err.Error()})
+		return
+	}
+	if _, err := newConfigFromYAML(body); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(validateResponse{Error: err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(validateResponse{OK: true})
 }
 
 // adminShouldMount reports whether the admin surface should be mounted and,

@@ -284,3 +284,52 @@ func TestAdminReadFileRejectsPathOutsideIncludeSet(t *testing.T) {
 		t.Fatalf("body must not leak file content")
 	}
 }
+
+func TestAdminValidateAcceptsValidConfig(t *testing.T) {
+	a := &adminServer{
+		devBypass: true, filePaths: []string{"/dev/null"},
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	body := strings.NewReader(`pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: clock
+`)
+	req := httptest.NewRequest("POST", "/admin/api/validate", body)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rw.Code, rw.Body.String())
+	}
+}
+
+func TestAdminValidateRejectsInvalidConfig(t *testing.T) {
+	a := &adminServer{
+		devBypass: true, filePaths: []string{"/dev/null"},
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	body := strings.NewReader(`pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: not-a-real-widget
+`)
+	req := httptest.NewRequest("POST", "/admin/api/validate", body)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body=%s", rw.Code, rw.Body.String())
+	}
+	if !strings.Contains(rw.Body.String(), "error") {
+		t.Fatalf("body should include error message, got %q", rw.Body.String())
+	}
+}
