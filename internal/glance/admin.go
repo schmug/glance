@@ -102,6 +102,9 @@ func (a *adminServer) registerRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+prefix+"/api/validate", a.middleware(a.handleValidate))
 	mux.HandleFunc("PUT "+prefix+"/api/files/{path...}", a.middleware(a.handleWriteFile))
 	mux.HandleFunc("GET "+prefix+"/api/config-generation", a.middleware(a.handleConfigGeneration))
+	mux.HandleFunc("GET "+prefix+"/api/history", a.middleware(a.handleHistoryList))
+	mux.HandleFunc("GET "+prefix+"/api/history/{sha}/diff", a.middleware(a.handleHistoryDiff))
+	mux.HandleFunc("POST "+prefix+"/api/history/{sha}/restore", a.middleware(a.handleHistoryRestore))
 }
 
 func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +294,60 @@ func committerFromRequest(r *http.Request) gitCommitter {
 		}
 	}
 	return gitCommitter{Email: email, Name: name}
+}
+
+func (a *adminServer) handleHistoryList(w http.ResponseWriter, r *http.Request) {
+	entries, err := a.history.log(50)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(entries)
+}
+
+func (a *adminServer) handleHistoryDiff(w http.ResponseWriter, r *http.Request) {
+	sha := r.PathValue("sha")
+	if !looksLikeSHA(sha) {
+		http.Error(w, "bad sha", http.StatusBadRequest)
+		return
+	}
+	diff, err := a.history.diff(sha)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(diff))
+}
+
+func (a *adminServer) handleHistoryRestore(w http.ResponseWriter, r *http.Request) {
+	sha := r.PathValue("sha")
+	if !looksLikeSHA(sha) {
+		http.Error(w, "bad sha", http.StatusBadRequest)
+		return
+	}
+	a.saveMu.Lock()
+	defer a.saveMu.Unlock()
+	if _, err := a.history.restore(sha, committerFromRequest(r)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a.configGeneration.Add(1)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+func looksLikeSHA(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+	for _, c := range s {
+		if !('0' <= c && c <= '9') && !('a' <= c && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // Stub types populated in later tasks.

@@ -429,3 +429,67 @@ func TestAdminSaveInvalidYAMLReturns400AndDoesNotWrite(t *testing.T) {
 		t.Fatalf("expected only initial commit, got %d", len(entries))
 	}
 }
+
+func TestAdminHistoryListReturnsEntries(t *testing.T) {
+	requireGit(t)
+	tmp := t.TempDir()
+	cfgPath := tmp + "/glance.yml"
+	_ = os.WriteFile(cfgPath, []byte("pages: []\n"), 0o600)
+	history, _ := openGitHistory(tmp+"/.glance-history", []string{cfgPath})
+	_ = history.recordInitial()
+	_ = history.commitEdit(cfgPath, []byte("pages:\n  - name: A\n"),
+		gitCommitter{Email: "you@example.com", Name: "you"}, "edit")
+
+	a := &adminServer{
+		devBypass: true, history: history, filePaths: []string{cfgPath},
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin/api/history", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rw.Code, rw.Body.String())
+	}
+	var entries []gitHistoryEntry
+	_ = json.Unmarshal(rw.Body.Bytes(), &entries)
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+}
+
+func TestAdminHistoryRestoreRewritesFile(t *testing.T) {
+	requireGit(t)
+	tmp := t.TempDir()
+	cfgPath := tmp + "/glance.yml"
+	orig := "pages: []\n"
+	_ = os.WriteFile(cfgPath, []byte(orig), 0o600)
+	history, _ := openGitHistory(tmp+"/.glance-history", []string{cfgPath})
+	_ = history.recordInitial()
+	_ = history.commitEdit(cfgPath, []byte("pages:\n  - name: A\n"),
+		gitCommitter{Email: "you@example.com", Name: "you"}, "edit")
+
+	a := &adminServer{
+		devBypass: true, history: history, filePaths: []string{cfgPath},
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	entries, _ := history.log(10)
+	initialSHA := entries[1].SHA
+
+	req := httptest.NewRequest("POST", "/admin/api/history/"+initialSHA+"/restore", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rw.Code, rw.Body.String())
+	}
+	got, _ := os.ReadFile(cfgPath)
+	if string(got) != orig {
+		t.Fatalf("file did not revert; got %q", got)
+	}
+}
