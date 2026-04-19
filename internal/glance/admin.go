@@ -204,5 +204,4 @@ func includesAsSlice(m map[string]struct{}) []string {
 }
 
 // Stub types populated in later tasks.
-type gitHistory struct{}
 type previewRegistry struct{}
