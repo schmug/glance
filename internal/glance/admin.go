@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 // adminServer owns the /admin surface. Constructed fresh on every config
@@ -85,6 +86,7 @@ func (a *adminServer) getLiveApp() *application {
 func (a *adminServer) registerRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix, a.middleware(a.handleIndex))
 	mux.HandleFunc("GET "+prefix+"/api/files", a.middleware(a.handleListFiles))
+	mux.HandleFunc("GET "+prefix+"/api/files/{path...}", a.middleware(a.handleReadFile))
 }
 
 func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +115,40 @@ func (a *adminServer) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// allowedFile returns the absolute path if it's in the include set, else "".
+func (a *adminServer) allowedFile(raw string) string {
+	clean, err := filepath.Abs(raw)
+	if err != nil {
+		return ""
+	}
+	for _, p := range a.filePaths {
+		pAbs, _ := filepath.Abs(p)
+		if pAbs == clean {
+			return clean
+		}
+	}
+	return ""
+}
+
+func (a *adminServer) handleReadFile(w http.ResponseWriter, r *http.Request) {
+	raw := r.PathValue("path")
+	abs := a.allowedFile("/" + raw)
+	if abs == "" {
+		abs = a.allowedFile(raw)
+	}
+	if abs == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		http.Error(w, "read error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write(data)
 }
 
 // adminShouldMount reports whether the admin surface should be mounted and,

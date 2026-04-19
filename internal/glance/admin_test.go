@@ -232,3 +232,55 @@ func TestAdminListFilesReturnsMainAndIncludes(t *testing.T) {
 		t.Fatalf("expected non-zero size")
 	}
 }
+
+func TestAdminReadFileReturnsContents(t *testing.T) {
+	tmp := t.TempDir()
+	main := tmp + "/glance.yml"
+	content := "pages: []\n"
+	if err := os.WriteFile(main, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := &adminServer{
+		devBypass: true, filePaths: []string{main},
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin/api/files"+main, nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d; body=%s", rw.Code, rw.Body.String())
+	}
+	if rw.Body.String() != content {
+		t.Fatalf("body %q != %q", rw.Body.String(), content)
+	}
+}
+
+func TestAdminReadFileRejectsPathOutsideIncludeSet(t *testing.T) {
+	tmp := t.TempDir()
+	allowed := tmp + "/glance.yml"
+	forbidden := tmp + "/etc-passwd"
+	_ = os.WriteFile(allowed, []byte("pages: []\n"), 0o600)
+	_ = os.WriteFile(forbidden, []byte("secret\n"), 0o600)
+
+	a := &adminServer{
+		devBypass: true, filePaths: []string{allowed},
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin/api/files"+forbidden, nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d, want 403", rw.Code)
+	}
+	if strings.Contains(rw.Body.String(), "secret") {
+		t.Fatalf("body must not leak file content")
+	}
+}
