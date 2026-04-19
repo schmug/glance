@@ -461,6 +461,59 @@ func TestAdminHistoryListReturnsEntries(t *testing.T) {
 	}
 }
 
+func TestAdminPreviewCreateAndServe(t *testing.T) {
+	yamlSrc := `pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: clock
+`
+	cfg, err := newConfigFromYAML([]byte(yamlSrc))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, err = newApplication(cfg)
+	if err != nil {
+		t.Fatalf("newApplication: %v", err)
+	}
+
+	a := &adminServer{
+		devBypass: true,
+		filePaths: []string{"/dev/null"},
+		previews:  newPreviewRegistry(3, 5*time.Minute),
+		liveApp:   func() *application { return &application{} },
+	}
+	a.sessionKeyFn = func(r *http.Request) string { return "test-session" }
+
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("POST", "/admin/api/preview", strings.NewReader(yamlSrc))
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("POST preview status: %d body=%s", rw.Code, rw.Body.String())
+	}
+	var resp struct {
+		PreviewID string `json:"preview_id"`
+	}
+	_ = json.Unmarshal(rw.Body.Bytes(), &resp)
+	if resp.PreviewID == "" {
+		t.Fatalf("no preview_id")
+	}
+
+	req2 := httptest.NewRequest("GET", "/admin/preview/"+resp.PreviewID+"/", nil)
+	rw2 := httptest.NewRecorder()
+	mux.ServeHTTP(rw2, req2)
+	if rw2.Code != http.StatusOK {
+		t.Fatalf("GET preview status: %d body=%s", rw2.Code, rw2.Body.String())
+	}
+	if !strings.Contains(rw2.Body.String(), "<html") && !strings.Contains(rw2.Body.String(), "<!DOCTYPE") {
+		t.Fatalf("preview body does not look like an HTML page")
+	}
+}
+
 func TestAdminHistoryRestoreRewritesFile(t *testing.T) {
 	requireGit(t)
 	tmp := t.TempDir()

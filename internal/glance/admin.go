@@ -56,12 +56,21 @@ func newAdminServer(ctx context.Context, cfg *config, liveApp func() *applicatio
 
 	paths := append([]string{configPath}, includes...)
 
-	return &adminServer{
+	a := &adminServer{
 		liveApp:   liveApp,
 		cfAccess:  verifier,
 		devBypass: devBypass,
 		filePaths: paths,
-	}, nil
+		previews:  newPreviewRegistry(3, 5*time.Minute),
+	}
+	go func() {
+		t := time.NewTicker(1 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			a.previews.evictExpired()
+		}
+	}()
+	return a, nil
 }
 
 // middleware composes the CF Access check and the Glance session check.
@@ -105,6 +114,74 @@ func (a *adminServer) registerRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/api/history", a.middleware(a.handleHistoryList))
 	mux.HandleFunc("GET "+prefix+"/api/history/{sha}/diff", a.middleware(a.handleHistoryDiff))
 	mux.HandleFunc("POST "+prefix+"/api/history/{sha}/restore", a.middleware(a.handleHistoryRestore))
+	mux.HandleFunc("POST "+prefix+"/api/preview", a.middleware(a.handleCreatePreview))
+	mux.HandleFunc(prefix+"/preview/{id}/{path...}", a.middleware(a.handlePreviewServe))
+}
+
+func (a *adminServer) sessionKey(r *http.Request) string {
+	if a.sessionKeyFn != nil {
+		return a.sessionKeyFn(r)
+	}
+	c, err := r.Cookie(AUTH_SESSION_COOKIE_NAME)
+	if err != nil || c.Value == "" {
+		return ""
+	}
+	return c.Value
+}
+
+func (a *adminServer) handleCreatePreview(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg, err := newConfigFromYAML(body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(validateResponse{Error: err.Error()})
+		return
+	}
+	previewApp, err := newApplication(cfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	id := a.previews.put(a.sessionKey(r), previewApp)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"preview_id": id})
+}
+
+func (a *adminServer) handlePreviewServe(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	app := a.previews.get(id, a.sessionKey(r))
+	if app == nil {
+		http.Error(w, "preview not found", http.StatusNotFound)
+		return
+	}
+	subPath := r.PathValue("path")
+	if subPath == "" {
+		subPath = "/"
+	} else {
+		subPath = "/" + subPath
+	}
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = subPath
+	r2.RequestURI = subPath
+
+	buildPreviewMux(app).ServeHTTP(w, r2)
+}
+
+// buildPreviewMux returns a minimal mux for serving a preview app. Mirrors the
+// subset of application.server() needed to render a page; avoids auth/admin
+// routes — the preview already inherited auth from its parent request.
+func buildPreviewMux(app *application) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", app.handlePageRequest)
+	mux.HandleFunc("GET /{page}", app.handlePageRequest)
+	mux.HandleFunc("GET /api/pages/{page}/content/{$}", app.handlePageContentRequest)
+	mux.HandleFunc("/api/widgets/{widget}/{path...}", app.handleWidgetRequest)
+	return mux
 }
 
 func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
