@@ -350,5 +350,3 @@ func looksLikeSHA(s string) bool {
 	return true
 }
 
-// Stub types populated in later tasks.
-type previewRegistry struct{}
