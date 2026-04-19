@@ -333,3 +333,99 @@ func TestAdminValidateRejectsInvalidConfig(t *testing.T) {
 		t.Fatalf("body should include error message, got %q", rw.Body.String())
 	}
 }
+
+func TestAdminSaveValidYAMLWritesFileAndCommits(t *testing.T) {
+	requireGit(t)
+	tmp := t.TempDir()
+	cfgPath := tmp + "/glance.yml"
+	_ = os.WriteFile(cfgPath, []byte(`pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: clock
+`), 0o600)
+
+	history, err := openGitHistory(tmp+"/.glance-history", []string{cfgPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = history.recordInitial()
+
+	a := &adminServer{
+		devBypass: true, filePaths: []string{cfgPath},
+		history: history,
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	newBody := `pages:
+  - name: NewHome
+    columns:
+      - size: full
+        widgets:
+          - type: clock
+`
+	req := httptest.NewRequest("PUT", "/admin/api/files"+cfgPath, strings.NewReader(newBody))
+	req.Header.Set("Cf-Access-Email", "you@example.com")
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d; body=%s", rw.Code, rw.Body.String())
+	}
+	if got, _ := os.ReadFile(cfgPath); string(got) != newBody {
+		t.Fatalf("file contents mismatch")
+	}
+	entries, _ := history.log(10)
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 commits, got %d", len(entries))
+	}
+}
+
+func TestAdminSaveInvalidYAMLReturns400AndDoesNotWrite(t *testing.T) {
+	requireGit(t)
+	tmp := t.TempDir()
+	cfgPath := tmp + "/glance.yml"
+	orig := `pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: clock
+`
+	_ = os.WriteFile(cfgPath, []byte(orig), 0o600)
+	history, _ := openGitHistory(tmp+"/.glance-history", []string{cfgPath})
+	_ = history.recordInitial()
+
+	a := &adminServer{
+		devBypass: true, filePaths: []string{cfgPath},
+		history: history,
+		liveApp: func() *application { return &application{} },
+	}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	bad := `pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: not-a-real-widget
+`
+	req := httptest.NewRequest("PUT", "/admin/api/files"+cfgPath, strings.NewReader(bad))
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", rw.Code)
+	}
+	if got, _ := os.ReadFile(cfgPath); string(got) != orig {
+		t.Fatalf("file should not have changed")
+	}
+	entries, _ := history.log(10)
+	if len(entries) != 1 {
+		t.Fatalf("expected only initial commit, got %d", len(entries))
+	}
+}
