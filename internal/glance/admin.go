@@ -116,6 +116,7 @@ func (a *adminServer) registerRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+prefix+"/api/history/{sha}/restore", a.middleware(a.handleHistoryRestore))
 	mux.HandleFunc("POST "+prefix+"/api/preview", a.middleware(a.handleCreatePreview))
 	mux.HandleFunc(prefix+"/preview/{id}/{path...}", a.middleware(a.handlePreviewServe))
+	mux.HandleFunc("GET "+prefix+"/api/widget-stubs", a.middleware(a.handleWidgetStubs))
 }
 
 func (a *adminServer) sessionKey(r *http.Request) string {
@@ -425,5 +426,10 @@ func looksLikeSHA(s string) bool {
 		}
 	}
 	return true
+}
+
+func (a *adminServer) handleWidgetStubs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(widgetStubs)
 }
 

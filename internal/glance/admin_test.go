@@ -546,3 +546,53 @@ func TestAdminHistoryRestoreRewritesFile(t *testing.T) {
 		t.Fatalf("file did not revert; got %q", got)
 	}
 }
+
+func TestAdminWidgetStubsIncludesAllKnownTypes(t *testing.T) {
+	for _, wt := range knownWidgetTypes() {
+		stub, ok := widgetStubs[wt]
+		if !ok {
+			t.Errorf("no stub for widget type %q", wt)
+			continue
+		}
+		if stub == "" {
+			t.Errorf("empty stub for widget type %q", wt)
+		}
+		yamlSrc := "pages:\n  - name: T\n    columns:\n      - size: full\n        widgets:\n" + indentYAML(stub, 10)
+		if _, err := newConfigFromYAML([]byte(yamlSrc)); err != nil {
+			t.Errorf("stub for %q is not valid inside a page: %v\n--- stub ---\n%s", wt, err, stub)
+		}
+	}
+}
+
+func TestAdminWidgetStubsEndpointReturnsJSON(t *testing.T) {
+	a := &adminServer{devBypass: true, liveApp: func() *application { return &application{} }}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin/api/widget-stubs", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d", rw.Code)
+	}
+	var m map[string]string
+	_ = json.Unmarshal(rw.Body.Bytes(), &m)
+	if m["clock"] == "" {
+		t.Fatalf("no stub for clock in response")
+	}
+}
+
+func indentYAML(s string, n int) string {
+	pad := strings.Repeat(" ", n)
+	var b strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if line == "" {
+			b.WriteByte('\n')
+			continue
+		}
+		b.WriteString(pad)
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
