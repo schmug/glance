@@ -91,6 +91,34 @@ func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("admin ok"))
 }
 
+// adminShouldMount reports whether the admin surface should be mounted and,
+// if not, a human-readable reason suitable for startup logs.
+func adminShouldMount(cfg *config) (bool, string) {
+	if !cfg.Admin.Enabled {
+		return false, "admin.enabled is false"
+	}
+	if len(cfg.Auth.Users) == 0 {
+		return false, "auth.users must be configured before admin can mount"
+	}
+	devBypass := os.Getenv("GLANCE_ADMIN_DEV_BYPASS") == "1"
+	if !devBypass {
+		if cfg.Admin.CloudflareAccess.TeamDomain == "" ||
+			cfg.Admin.CloudflareAccess.Audience == "" ||
+			len(cfg.Admin.CloudflareAccess.AllowedEmails) == 0 {
+			return false, "admin.cloudflare-access.{team-domain,audience,allowed-emails} all required unless GLANCE_ADMIN_DEV_BYPASS=1"
+		}
+	}
+	return true, ""
+}
+
+func includesAsSlice(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 // Stub types populated in later tasks.
 type gitHistory struct{}
 type previewRegistry struct{}

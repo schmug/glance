@@ -132,3 +132,57 @@ func TestAdminDevBypassSkipsCFButKeepsSession(t *testing.T) {
 	}
 	_ = os.Setenv // keep import
 }
+
+func TestAdminMountReasonsAreExplicit(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want string // substring of reason
+	}{
+		{
+			name: "disabled",
+			yaml: "admin:\n  enabled: false\n",
+			want: "admin.enabled",
+		},
+		{
+			name: "no users",
+			yaml: "admin:\n  enabled: true\n",
+			want: "auth.users",
+		},
+		{
+			name: "no CF config",
+			yaml: `
+auth:
+  secret-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  users:
+    cory:
+      password: hunter2
+admin:
+  enabled: true
+`,
+			want: "cloudflare-access",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := newConfigFromYAML([]byte(tc.yaml + `
+pages:
+  - name: Home
+    columns:
+      - size: full
+        widgets:
+          - type: clock
+`))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			ok, reason := adminShouldMount(cfg)
+			if ok {
+				t.Fatalf("expected NOT to mount")
+			}
+			if !strings.Contains(reason, tc.want) {
+				t.Fatalf("reason %q does not contain %q", reason, tc.want)
+			}
+		})
+	}
+}
