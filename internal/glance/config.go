@@ -65,6 +65,16 @@ type config struct {
 		AppBackgroundColor string        `yaml:"app-background-color"`
 	} `yaml:"branding"`
 
+	Admin struct {
+		Enabled          bool   `yaml:"enabled"`
+		HistoryDir       string `yaml:"history-dir"`
+		CloudflareAccess struct {
+			TeamDomain    string   `yaml:"team-domain"`
+			Audience      string   `yaml:"audience"`
+			AllowedEmails []string `yaml:"allowed-emails"`
+		} `yaml:"cloudflare-access"`
+	} `yaml:"admin"`
+
 	Pages []page `yaml:"pages"`
 }
 
