@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glance Admin</title>
+<link rel="stylesheet" href="{{ .App.StaticAssetPath "css/bundle.css" }}">
+<link rel="stylesheet" href="{{ .App.StaticAssetPath "css/admin.css" }}">
+</head>
+<body class="admin-body">
+<div id="admin-root" data-base-url="{{ .App.Config.Server.BaseURL }}">
+  <div class="admin-topbar">
+    <strong>Glance Admin</strong>
+    <select id="file-picker"></select>
+    <button id="save-btn" disabled>Save</button>
+    <button id="insert-widget-btn">Insert widget…</button>
+    <span id="status"></span>
+  </div>
+  <div class="admin-mobile-tabs">
+    <button data-tab="edit" class="active">Edit</button>
+    <button data-tab="preview">Preview</button>
+    <button data-tab="history">History</button>
+  </div>
+  <div class="admin-main">
+    <div class="admin-filelist" id="file-list"></div>
+    <div class="admin-editor-wrap admin-mobile-panel active" data-tab="edit">
+      <div class="admin-editor-error" id="editor-error"></div>
+      <textarea class="admin-editor" id="editor" spellcheck="false"></textarea>
+    </div>
+    <div class="admin-preview-wrap admin-mobile-panel" data-tab="preview">
+      <div class="admin-preview-tabs">
+        <button data-pvtab="skeleton" class="active">Skeleton</button>
+        <button data-pvtab="full">Full render</button>
+      </div>
+      <div class="admin-preview-body">
+        <div class="admin-preview-skeleton" id="preview-skeleton"></div>
+        <iframe class="admin-preview-iframe" id="preview-iframe" title="Full dashboard preview"></iframe>
+      </div>
+    </div>
+    <div class="admin-history-list admin-mobile-panel" data-tab="history" id="history-list"></div>
+  </div>
+</div>
+<script src="{{ .App.StaticAssetPath "js/admin/js-yaml.min.js" }}"></script>
+<script src="{{ .App.StaticAssetPath "js/admin/app.js" }}"></script>
+</body>
+</html>

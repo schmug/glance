@@ -582,6 +582,40 @@ func TestAdminWidgetStubsEndpointReturnsJSON(t *testing.T) {
 	}
 }
 
+func TestAdminIndexServesShell(t *testing.T) {
+	a := &adminServer{devBypass: true, liveApp: func() *application { return &application{} }}
+	mux := http.NewServeMux()
+	a.registerRoutes(mux, "/admin")
+
+	req := httptest.NewRequest("GET", "/admin", nil)
+	rw := httptest.NewRecorder()
+	mux.ServeHTTP(rw, req)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status %d", rw.Code)
+	}
+	body := rw.Body.String()
+	for _, want := range []string{
+		"<title>Glance Admin</title>",
+		`id="admin-root"`,
+		`id="editor"`,
+		`id="file-list"`,
+		`id="file-picker"`,
+		`id="save-btn"`,
+		`id="insert-widget-btn"`,
+		`id="status"`,
+		`id="editor-error"`,
+		`id="preview-skeleton"`,
+		`id="preview-iframe"`,
+		`id="history-list"`,
+		"admin/app.js",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
+	}
+}
+
 func indentYAML(s string, n int) string {
 	pad := strings.Repeat(" ", n)
 	var b strings.Builder

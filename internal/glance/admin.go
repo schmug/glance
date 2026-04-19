@@ -1,6 +1,7 @@
 package glance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -185,10 +186,23 @@ func buildPreviewMux(app *application) *http.ServeMux {
 	return mux
 }
 
+var adminPageTemplate = mustParseTemplate("admin.html")
+
 func (a *adminServer) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// Placeholder — replaced with the editor shell in Task 15.
-	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte("admin ok"))
+	app := a.getLiveApp()
+	if app == nil {
+		http.Error(w, "admin not ready", http.StatusServiceUnavailable)
+		return
+	}
+	data := &templateData{App: app}
+	app.populateTemplateRequestData(&data.Request, r)
+	var buf bytes.Buffer
+	if err := adminPageTemplate.Execute(&buf, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
 }
 
 type fileListEntry struct {
