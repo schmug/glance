@@ -105,11 +105,13 @@ func (a *adminServer) middleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Layer 1: CF Access JWT (skipped in dev bypass).
 		if !a.devBypass {
-			if _, err := a.cfAccess.verifyFromRequest(r); err != nil {
+			email, err := a.cfAccess.verifyFromRequest(r)
+			if err != nil {
 				w.Header().Set("X-Admin-Auth-Failed", "cloudflare-access")
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
+			r = r.WithContext(withVerifiedEmail(r.Context(), email))
 		}
 
 		// Layer 2: Glance session cookie.
@@ -399,19 +401,32 @@ func (a *adminServer) handleConfigGeneration(w http.ResponseWriter, r *http.Requ
 }
 
 func committerFromRequest(r *http.Request) gitCommitter {
+	// Trust the email plumbed through context by the CF Access middleware.
+	// Cf-Access-* headers on the request are attacker-controllable if CF
+	// Access is bypassed at the edge, so we never use them for attribution
+	// when a verified email is available.
+	if email, ok := verifiedEmailFromContext(r.Context()); ok {
+		return gitCommitter{Email: email, Name: nameFromEmail(email)}
+	}
+
+	// Fallback for the dev-bypass path: no JWT was verified, so the caller
+	// is providing identity directly via headers.
 	email := r.Header.Get("Cf-Access-Email")
 	name := r.Header.Get("Cf-Access-Name")
 	if email == "" {
 		email = "admin@glance.local"
 	}
 	if name == "" {
-		if at := strings.Index(email, "@"); at > 0 {
-			name = email[:at]
-		} else {
-			name = "Glance Admin"
-		}
+		name = nameFromEmail(email)
 	}
 	return gitCommitter{Email: email, Name: name}
+}
+
+func nameFromEmail(email string) string {
+	if at := strings.Index(email, "@"); at > 0 {
+		return email[:at]
+	}
+	return "Glance Admin"
 }
 
 func (a *adminServer) handleHistoryList(w http.ResponseWriter, r *http.Request) {
