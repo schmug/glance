@@ -92,3 +92,19 @@ func (v *cfAccessVerifier) verifyFromRequest(r *http.Request) (email string, err
 	}
 	return v.verify(r.Context(), tok)
 }
+
+// verifiedEmailKey is the unexported context key under which the middleware
+// stashes the email extracted from a verified Cf-Access-Jwt-Assertion. Reading
+// from context is the only trustworthy way to learn the caller's identity;
+// raw Cf-Access-* headers are attacker-controllable if CF Access is ever
+// bypassed at the network edge.
+type verifiedEmailKey struct{}
+
+func withVerifiedEmail(ctx context.Context, email string) context.Context {
+	return context.WithValue(ctx, verifiedEmailKey{}, email)
+}
+
+func verifiedEmailFromContext(ctx context.Context) (string, bool) {
+	email, ok := ctx.Value(verifiedEmailKey{}).(string)
+	return email, ok && email != ""
+}
