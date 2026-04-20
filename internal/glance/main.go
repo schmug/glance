@@ -1,6 +1,7 @@
 package glance
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -127,6 +128,24 @@ func serveApp(configPath string) error {
 
 		if !hadValidConfigOnStartup {
 			hadValidConfigOnStartup = true
+		}
+
+		if ok, reason := adminShouldMount(config); ok {
+			_, includes, perr := parseYAMLIncludes(configPath)
+			if perr != nil {
+				log.Printf("admin: failed to re-parse includes, not mounting: %v", perr)
+			} else {
+				liveAppRef := app
+				admin, aerr := newAdminServer(context.Background(), config, func() *application { return liveAppRef }, configPath, includesAsSlice(includes))
+				if aerr != nil {
+					log.Printf("admin: failed to initialize, not mounting: %v", aerr)
+				} else {
+					app.admin = admin
+					log.Printf("admin: enabled on /admin")
+				}
+			}
+		} else {
+			log.Printf("admin: not mounted (%s)", reason)
 		}
 
 		if stopServer != nil {

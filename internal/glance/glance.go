@@ -42,6 +42,8 @@ type application struct {
 	usernameHashToUsername map[string]string
 	authAttemptsMu         sync.Mutex
 	failedAuthAttempts     map[string]*failedAuthAttempt
+
+	admin *adminServer
 }
 
 func newApplication(c *config) (*application, error) {
@@ -486,6 +488,10 @@ func (a *application) server() (func() error, func() error) {
 		absAssetsPath, _ = filepath.Abs(a.Config.Server.AssetsPath)
 		assetsFS := fileServerWithCache(http.Dir(a.Config.Server.AssetsPath), 2*time.Hour)
 		mux.Handle("/assets/{path...}", http.StripPrefix("/assets/", assetsFS))
+	}
+
+	if a.admin != nil {
+		a.admin.registerRoutes(mux, a.Config.Server.BaseURL+"/admin")
 	}
 
 	server := http.Server{

@@ -2958,3 +2958,48 @@ Example:
 ```
 
 Note the use of `|` after `source:`, this allows you to insert a multi-line string.
+
+## Admin web UI
+
+An authenticated `/admin` endpoint that lets you edit `glance.yml` (and any
+`!include`d files) in a browser, with live skeleton preview, on-demand full
+render, and git-backed edit history.
+
+### Prerequisites
+
+- `git` on `$PATH` (used for edit history)
+- At least one user configured under `auth.users` — the admin uses the same
+  session cookie as the dashboard, stacked behind Cloudflare Access
+- Cloudflare Access configured in front of Glance (or `GLANCE_ADMIN_DEV_BYPASS=1`
+  for local development only)
+
+### Configuration
+
+```yaml
+admin:
+  enabled: true
+  history-dir: ./.glance-history   # default; committed to a local-only git repo
+  cloudflare-access:
+    team-domain: example.cloudflareaccess.com
+    audience: <your CF Access app AUD tag>
+    allowed-emails:
+      - you@example.com
+```
+
+Every `/admin/*` request must carry a valid `Cf-Access-Jwt-Assertion` header
+AND a valid Glance session cookie. Failure at either layer returns 401 with
+the response header `X-Admin-Auth-Failed: cloudflare-access|session`.
+
+### Development bypass
+
+Set `GLANCE_ADMIN_DEV_BYPASS=1` in the environment to skip CF Access
+verification for local testing. Glance password is still required. A warning
+is logged on every startup while this is set.
+
+### History repo
+
+Every save is committed to `admin.history-dir` (default `./.glance-history`,
+relative to the config file). The commit author comes from the CF Access JWT
+`email` / `name` claims; in dev-bypass mode it falls back to the Glance
+username. Adding `/.glance-history/` to your outer repo's `.gitignore` is
+recommended.
