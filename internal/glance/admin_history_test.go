@@ -62,6 +62,34 @@ func TestGitHistoryInitsAndCommits(t *testing.T) {
 	_ = filepath.Base // silence unused
 }
 
+// TestCommitEditNoOpReturnsNil guards against the regression where a
+// byte-identical save bubbles `git commit`'s "nothing to commit" exit-1 out
+// to the user as an HTTP 500.
+func TestCommitEditNoOpReturnsNil(t *testing.T) {
+	requireGit(t)
+	tmp := t.TempDir()
+	realCfg := tmp + "/glance.yml"
+	contents := []byte("pages: []\n")
+	if err := os.WriteFile(realCfg, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h, err := openGitHistory(tmp+"/.glance-history", []string{realCfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.recordInitial(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.commitEdit(realCfg, contents,
+		gitCommitter{Email: "a@x", Name: "a"}, "no-op"); err != nil {
+		t.Fatalf("no-op save should succeed, got: %v", err)
+	}
+	entries, _ := h.log(10)
+	if len(entries) != 1 {
+		t.Fatalf("no-op save must not create a new commit; got %d entries", len(entries))
+	}
+}
+
 func TestGitHistoryRollback(t *testing.T) {
 	requireGit(t)
 	tmp := t.TempDir()
@@ -80,6 +108,77 @@ func TestGitHistoryRollback(t *testing.T) {
 	entries, _ := h.log(10)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 commit after rollback, got %d", len(entries))
+	}
+}
+
+// TestGitHistoryRestoreAtomicityWhenTargetPredatesFile guards against the bug
+// where restore() overwrites earlier real files on disk before discovering that
+// a later tracked path doesn't exist at the target sha — leaving live config in
+// an inconsistent Frankenstein state.
+func TestGitHistoryRestoreAtomicityWhenTargetPredatesFile(t *testing.T) {
+	requireGit(t)
+	tmp := t.TempDir()
+	main := tmp + "/glance.yml"
+	if err := os.WriteFile(main, []byte("pages: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Phase 1: open with only the main file and record the initial commit.
+	// This sha won't contain a mirror for the include we add next.
+	h1, err := openGitHistory(tmp+"/.glance-history", []string{main})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h1.recordInitial(); err != nil {
+		t.Fatal(err)
+	}
+	initialEntries, err := h1.log(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initialEntries) != 1 {
+		t.Fatalf("want 1 initial commit, got %d", len(initialEntries))
+	}
+	initialSHA := initialEntries[0].SHA
+
+	// Phase 2: user adds an include later, then re-opens history tracking both.
+	include := tmp + "/include.yml"
+	if err := os.WriteFile(include, []byte("widgets: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h2, err := openGitHistory(tmp+"/.glance-history", []string{main, include})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h2.commitEdit(include, []byte("widgets: []\n"),
+		gitCommitter{Email: "a@x", Name: "a"}, "add include"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Phase 3: user edits main to a distinctive value we can detect on disk.
+	currentMain := []byte("pages:\n  - name: CURRENT\n")
+	if err := os.WriteFile(main, currentMain, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h2.commitEdit(main, currentMain,
+		gitCommitter{Email: "a@x", Name: "a"}, "edit main"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Phase 4: restore to initialSHA. include.yml's mirror doesn't exist there,
+	// so the restore MUST fail.
+	if _, err := h2.restore(initialSHA, gitCommitter{Email: "r@x", Name: "r"}); err == nil {
+		t.Fatal("expected restore to fail when target sha predates an included file")
+	}
+
+	// Critical assertion: main.yml on disk must NOT have been overwritten
+	// before the failure. A partial restore would have set it back to "pages: []\n".
+	got, err := os.ReadFile(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(currentMain) {
+		t.Fatalf("restore partially wrote main.yml: got %q, want %q", got, currentMain)
 	}
 }
 

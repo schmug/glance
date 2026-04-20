@@ -380,7 +380,9 @@ func (a *adminServer) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.WriteFile(abs, body, 0o600); err != nil {
-		_ = a.history.rollbackLast()
+		if rerr := a.history.rollbackLast(); rerr != nil {
+			log.Printf("ERROR: admin history rollback failed after disk write error: write=%v rollback=%v", err, rerr)
+		}
 		http.Error(w, "disk write failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

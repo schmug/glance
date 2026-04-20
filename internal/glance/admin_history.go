@@ -119,6 +119,11 @@ func (h *gitHistory) commitEdit(realPath string, newContents []byte, c gitCommit
 	if _, err := h.git("add", "--all"); err != nil {
 		return err
 	}
+	// `git commit` errors on an empty change — treat a byte-identical save
+	// as a successful no-op so the caller doesn't surface a confusing 500.
+	if _, err := h.git("diff", "--cached", "--quiet"); err == nil {
+		return nil
+	}
 	_, err := h.gitCommit(c, message)
 	return err
 }
@@ -153,20 +158,33 @@ func (h *gitHistory) log(n int) ([]gitHistoryEntry, error) {
 }
 
 func (h *gitHistory) restore(sha string, c gitCommitter) ([]string, error) {
+	// Read every tracked file at `sha` via `git show` (no worktree mutation)
+	// before touching any real file on disk. If any path doesn't exist at the
+	// target revision, we fail without leaving a half-restored config behind.
+	type staged struct {
+		realPath string
+		data     []byte
+	}
+	stage := make([]staged, 0, len(h.trackPaths))
 	for _, p := range h.trackPaths {
 		m := h.mirrorPath(p)
 		rel, err := filepath.Rel(h.dir, m)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := h.git("checkout", sha, "--", rel); err != nil {
-			return nil, err
-		}
-		data, err := os.ReadFile(m)
+		data, err := h.git("show", sha+":"+rel)
 		if err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(p, data, 0o600); err != nil {
+		stage = append(stage, staged{realPath: p, data: []byte(data)})
+	}
+	// All revisions resolved — apply to mirror and real files.
+	for _, s := range stage {
+		m := h.mirrorPath(s.realPath)
+		if err := os.WriteFile(m, s.data, 0o600); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(s.realPath, s.data, 0o600); err != nil {
 			return nil, err
 		}
 	}
