@@ -1,0 +1,28 @@
+services:
+  glance:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: glance:local
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config
+    environment:
+      # Uncomment for local testing without Cloudflare Access.
+      # Requires a valid Glance session (password) regardless.
+      # GLANCE_ADMIN_DEV_BYPASS: "1"
+      TZ: ${TZ:-UTC}
+    expose:
+      - "8080"
+    # Uncomment to reach glance directly during bring-up (bypassing the tunnel).
+    # ports:
+    #   - "8080:8080"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    depends_on:
+      - glance
