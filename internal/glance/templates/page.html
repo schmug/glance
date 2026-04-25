@@ -71,11 +71,32 @@
             {{ if not .App.Config.Theme.DisablePicker }}
             <div class="theme-picker flex justify-between items-center" data-popover-type="html" data-popover-position="above" data-popover-show-delay="0" data-popover-hide-delay="100" data-popover-anchor=".current-theme-preview" data-popover-trigger="click">
                 <div data-popover-html>
-                    <div class="theme-choices">
-                        {{ .App.Config.Theme.PreviewHTML }}
-                        {{ range $_, $preset := .App.Config.Theme.Presets.Items }}
-                        {{ $preset.PreviewHTML }}
-                        {{ end }}
+                    <div class="theme-popover-content">
+                        <div class="theme-choices">
+                            {{ .App.Config.Theme.PreviewHTML }}
+                            {{ range $_, $preset := .App.Config.Theme.Presets.Items }}
+                            {{ $preset.PreviewHTML }}
+                            {{ end }}
+                        </div>
+                        <div class="theme-customize">
+                            <div class="theme-customize-label size-h6">Customize</div>
+                            <div class="theme-customize-swatches">
+                                <label class="theme-customize-swatch" title="Background">
+                                    <input type="color" class="theme-customize-input" data-var="background" value="#151519">
+                                    <span class="theme-customize-swatch-color" data-swatch="background"></span>
+                                    <span class="theme-customize-swatch-label">Background</span>
+                                </label>
+                                <label class="theme-customize-swatch" title="Text & accent color">
+                                    <input type="color" class="theme-customize-input" data-var="primary" value="#d2b675">
+                                    <span class="theme-customize-swatch-color" data-swatch="primary"></span>
+                                    <span class="theme-customize-swatch-label">Text</span>
+                                </label>
+                            </div>
+                            <div class="theme-customize-actions">
+                                <button type="button" class="theme-customize-btn" data-action="reset">Reset</button>
+                                <button type="button" class="theme-customize-btn" data-action="copy">Copy YAML</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

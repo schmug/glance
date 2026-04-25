@@ -396,3 +396,93 @@ kbd:active {
 .theme-picker.popover-active .current-theme-preview, .theme-picker:hover {
     opacity: 1;
 }
+
+.theme-popover-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+}
+
+.theme-customize {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-separator);
+}
+
+.theme-customize-label {
+    color: var(--color-text-subdue);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.theme-customize-swatches {
+    display: flex;
+    gap: 1rem;
+}
+
+.theme-customize-swatch {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.7rem;
+    background-color: var(--color-widget-background-highlight);
+    border-radius: 0.4rem;
+    cursor: pointer;
+    flex: 1;
+    transition: background-color .15s;
+}
+
+.theme-customize-swatch:hover {
+    background-color: var(--color-widget-content-border);
+}
+
+.theme-customize-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.theme-customize-swatch-color {
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 0.3rem;
+    background-color: var(--color-text-subdue);
+    border: 1px solid var(--color-widget-content-border);
+    flex-shrink: 0;
+}
+
+.theme-customize-swatch-label {
+    font-size: var(--font-size-h6);
+    color: var(--color-text-base);
+}
+
+.theme-customize-actions {
+    display: flex;
+    gap: 0.6rem;
+}
+
+.theme-customize-btn {
+    flex: 1;
+    padding: 0.5rem 0.8rem;
+    background-color: transparent;
+    color: var(--color-text-base);
+    border: 1px solid var(--color-widget-content-border);
+    border-radius: 0.3rem;
+    cursor: pointer;
+    font-size: var(--font-size-h6);
+    transition: background-color .15s, border-color .15s;
+}
+
+.theme-customize-btn:hover:not(:disabled) {
+    background-color: var(--color-widget-background-highlight);
+    border-color: var(--color-text-subdue);
+}
+
+.theme-customize-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
+}

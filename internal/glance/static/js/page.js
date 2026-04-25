@@ -692,16 +692,18 @@ async function changeTheme(key, onChanged) {
 }
 
 function initThemePicker() {
-    const themeChoicesInMobileNav = find(".mobile-navigation .theme-choices");
-    if (!themeChoicesInMobileNav) return;
+    const popoverContentInMobileNav = find(".mobile-navigation .theme-popover-content");
+    if (!popoverContentInMobileNav) return;
 
     const themeChoicesInHeader = find(".header-container .theme-choices");
 
     if (themeChoicesInHeader) {
         themeChoicesInHeader.replaceWith(
-            themeChoicesInMobileNav.cloneNode(true)
+            popoverContentInMobileNav.cloneNode(true)
         );
     }
+
+    setupThemeCustomize();
 
     const presetElems = findAll(".theme-choices .theme-preset");
     let themePreviewElems = document.getElementsByClassName("current-theme-preview");
@@ -726,6 +728,7 @@ function initThemePicker() {
             changeTheme(themeKey, function() {
                 isLoading = false;
                 pageData.theme = themeKey;
+                clearCustomTheme();
                 presetElems.forEach((e) => { e.classList.remove("current"); });
 
                 Array.from(themePreviewElems).forEach((preview) => {
@@ -741,6 +744,160 @@ function initThemePicker() {
             });
         });
     })
+}
+
+const CUSTOM_THEME_STORAGE_KEY = "glance-custom-theme";
+const CUSTOM_THEME_VARS = ["--bgh", "--bgs", "--bgl", "--color-primary", "--color-positive"];
+
+function hexToHsl(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+    }
+    return {
+        h: Math.round(h * 3600) / 10,
+        s: Math.round(s * 1000) / 10,
+        l: Math.round(l * 1000) / 10,
+    };
+}
+
+function readCustomTheme() {
+    try {
+        return JSON.parse(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY)) || {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function writeCustomTheme(state) {
+    if (!state || (!state.background && !state.primary)) {
+        localStorage.removeItem(CUSTOM_THEME_STORAGE_KEY);
+        return;
+    }
+    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(state));
+}
+
+function applyCustomTheme(state) {
+    const root = document.documentElement;
+
+    if (state.background) {
+        const { h, s, l } = hexToHsl(state.background);
+        root.style.setProperty("--bgh", h);
+        root.style.setProperty("--bgs", s + "%");
+        root.style.setProperty("--bgl", l + "%");
+        root.setAttribute("data-scheme", l > 50 ? "light" : "dark");
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", state.background);
+    }
+
+    if (state.primary) {
+        const { h, s, l } = hexToHsl(state.primary);
+        const value = `hsl(${h}, ${s}%, ${l}%)`;
+        root.style.setProperty("--color-primary", value);
+        root.style.setProperty("--color-positive", value);
+    }
+
+    syncCustomizeUI(state);
+}
+
+function clearCustomTheme() {
+    const root = document.documentElement;
+    CUSTOM_THEME_VARS.forEach((v) => root.style.removeProperty(v));
+    writeCustomTheme(null);
+    syncCustomizeUI({});
+}
+
+function syncCustomizeUI(state) {
+    document.querySelectorAll('.theme-customize-input[data-var="background"]').forEach((input) => {
+        if (state.background) input.value = state.background;
+    });
+    document.querySelectorAll('.theme-customize-input[data-var="primary"]').forEach((input) => {
+        if (state.primary) input.value = state.primary;
+    });
+    document.querySelectorAll('.theme-customize-swatch-color[data-swatch="background"]').forEach((el) => {
+        el.style.backgroundColor = state.background || "";
+    });
+    document.querySelectorAll('.theme-customize-swatch-color[data-swatch="primary"]').forEach((el) => {
+        el.style.backgroundColor = state.primary || "";
+    });
+}
+
+function formatCustomThemeYaml(state) {
+    const lines = ["# paste under theme.presets in glance.yml", "  my-custom:"];
+    if (state.background) {
+        const { h, s, l } = hexToHsl(state.background);
+        lines.push(`    background-color: ${h} ${s} ${l}`);
+        if (l > 50) lines.push(`    light: true`);
+    }
+    if (state.primary) {
+        const { h, s, l } = hexToHsl(state.primary);
+        lines.push(`    primary-color: ${h} ${s} ${l}`);
+    }
+    return lines.join("\n") + "\n";
+}
+
+function setupThemeCustomize() {
+    const initial = readCustomTheme();
+    if (initial.background || initial.primary) applyCustomTheme(initial);
+    syncCustomizeUI(initial);
+
+    document.addEventListener("input", (e) => {
+        const input = e.target.closest(".theme-customize-input");
+        if (!input) return;
+        const state = readCustomTheme();
+        state[input.dataset.var] = input.value;
+        writeCustomTheme(state);
+        applyCustomTheme(state);
+    });
+
+    document.addEventListener("click", (e) => {
+        const btn = e.target.closest(".theme-customize-btn");
+        if (!btn) return;
+        e.preventDefault();
+
+        if (btn.dataset.action === "reset") {
+            clearCustomTheme();
+            location.reload();
+            return;
+        }
+
+        if (btn.dataset.action === "copy") {
+            const state = readCustomTheme();
+            if (!state.background && !state.primary) {
+                flashButton(btn, "Nothing to copy");
+                return;
+            }
+            const yaml = formatCustomThemeYaml(state);
+            navigator.clipboard.writeText(yaml).then(
+                () => flashButton(btn, "Copied!"),
+                () => flashButton(btn, "Copy failed"),
+            );
+        }
+    });
+}
+
+function flashButton(btn, message) {
+    const original = btn.textContent;
+    btn.textContent = message;
+    btn.disabled = true;
+    setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+    }, 1500);
 }
 
 async function setupPage() {
