@@ -856,9 +856,10 @@ function setupThemeCustomize() {
     syncCustomizeUI(initial);
 
     document.addEventListener("pointerdown", (e) => {
-        const input = e.target.closest(".theme-customize-input");
-        if (!input) return;
-        keepPopoverAliveWhile(input);
+        const swatch = e.target.closest(".theme-customize-swatch");
+        if (!swatch) return;
+        const input = swatch.querySelector(".theme-customize-input");
+        if (input) keepPopoverAliveWhile(input);
     });
 
     document.addEventListener("input", (e) => {
@@ -913,6 +914,7 @@ function keepPopoverAliveWhile(input) {
     }
 
     input.addEventListener("change", stop, { once: true });
+    input.addEventListener("cancel", stop, { once: true });
     input.addEventListener("blur", stop, { once: true });
 }
 
