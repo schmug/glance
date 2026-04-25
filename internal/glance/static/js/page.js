@@ -855,6 +855,12 @@ function setupThemeCustomize() {
     if (initial.background || initial.primary) applyCustomTheme(initial);
     syncCustomizeUI(initial);
 
+    document.addEventListener("pointerdown", (e) => {
+        const input = e.target.closest(".theme-customize-input");
+        if (!input) return;
+        keepPopoverAliveWhile(input);
+    });
+
     document.addEventListener("input", (e) => {
         const input = e.target.closest(".theme-customize-input");
         if (!input) return;
@@ -888,6 +894,26 @@ function setupThemeCustomize() {
             );
         }
     });
+}
+
+function keepPopoverAliveWhile(input) {
+    const container = document.querySelector(".popover-container");
+    if (!container) return;
+
+    const mouseEnter = () => container.dispatchEvent(new MouseEvent("mouseenter"));
+    mouseEnter();
+    const interval = setInterval(mouseEnter, 100);
+    const safety = setTimeout(stop, 60000);
+
+    function stop() {
+        clearInterval(interval);
+        clearTimeout(safety);
+        input.removeEventListener("change", stop);
+        input.removeEventListener("blur", stop);
+    }
+
+    input.addEventListener("change", stop, { once: true });
+    input.addEventListener("blur", stop, { once: true });
 }
 
 function flashButton(btn, message) {
